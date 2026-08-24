@@ -114,7 +114,7 @@ with tab1:
                     """
 
                     response = client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.6-flash",
                         contents=[image, prompt],
                         config=types.GenerateContentConfig(
                             temperature=0.0,
