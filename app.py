@@ -7,7 +7,7 @@ import pandas as pd
 import pydantic
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Page Setup
 st.set_page_config(
@@ -131,8 +131,14 @@ with tab1:
                     total_fat = sum(item.fat_g for item in analysis.ingredients)
                     total_calories = (total_protein * 4) + (total_carbs * 4) + (total_fat * 9)
 
+                    from datetime import datetime, timedelta, timezone
+
+                    # Set Singapore Time (UTC+8)
+                    SGT = timezone(timedelta(hours=8))
+
+                    # When creating a new meal entry (in Tab 1):
                     new_entry = {
-                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Timestamp": datetime.now(SGT).strftime("%Y-%m-%d %H:%M"),
                         "Meal Name": meal_name,
                         "Calories (kcal)": total_calories,
                         "Protein (g)": total_protein,
@@ -219,9 +225,19 @@ with tab2:
             # Chart Visualization
             st.markdown("---")
             st.subheader("📊 Caloric Intake Trend")
-            chart_data = filtered_df.set_index("dt_timestamp")[["Calories (kcal)"]]
-            st.bar_chart(chart_data)
 
+            if filter_period == "Today":
+                # Group by Meal Name and Timestamp for a clean discrete bar chart today
+                chart_df = filtered_df.groupby(["Timestamp", "Meal Name"])["Calories (kcal)"].sum().reset_index()
+                chart_df["Label"] = chart_df["Meal Name"] + " (" + chart_df["Timestamp"].str.split(" ").str[1] + ")"
+                st.bar_chart(chart_df.set_index("Label")[["Calories (kcal)"]], width="stretch")
+            else:
+                # Group by Date for multi-day views
+                filtered_df["Date"] = filtered_df["dt_timestamp"].dt.strftime("%Y-%m-%d")
+                daily_chart = filtered_df.groupby("Date")["Calories (kcal)"].sum()
+                st.bar_chart(daily_chart, width="stretch")
+        
+            
         # Deletion & Editing Section
         st.markdown("---")
         st.subheader("🗑️ Edit / Delete Incorrect Logs")
