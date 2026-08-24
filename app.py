@@ -137,13 +137,15 @@ with tab1:
                     SGT = timezone(timedelta(hours=8))
 
                     # When creating a new meal entry (in Tab 1):
+                    # In Tab 1 when saving a new meal:
                     new_entry = {
                         "Timestamp": datetime.now(SGT).strftime("%Y-%m-%d %H:%M"),
                         "Meal Name": meal_name,
                         "Calories (kcal)": total_calories,
                         "Protein (g)": total_protein,
                         "Carbs (g)": total_carbs,
-                        "Fat (g)": total_fat
+                        "Fat (g)": total_fat,
+                        "Analysis": analysis.model_dump()  # Store rich AI response dict
                     }
                     st.session_state.meal_log = pd.concat(
                         [st.session_state.meal_log, pd.DataFrame([new_entry])], 
@@ -236,7 +238,46 @@ with tab2:
                 filtered_df["Date"] = filtered_df["dt_timestamp"].dt.strftime("%Y-%m-%d")
                 daily_chart = filtered_df.groupby("Date")["Calories (kcal)"].sum()
                 st.bar_chart(daily_chart, width="stretch")
+        st.markdown("---")
+        st.subheader("🔍 Inspect Meal Details")
         
+        if not df.empty:
+            # Create a dropdown to select any logged meal by Timestamp & Name
+            meal_options = [f"{row['Timestamp']} - {row['Meal Name']}" for idx, row in df.iterrows()]
+            selected_meal_str = st.selectbox("Select a meal to view full AI breakdown:", meal_options)
+            
+            # Retrieve selected row
+            selected_idx = meal_options.index(selected_meal_str)
+            selected_row = df.iloc[selected_idx]
+
+            if "Analysis" in selected_row and pd.notna(selected_row["Analysis"]):
+                analysis_data = selected_row["Analysis"]
+                
+                # Display cached analysis
+                st.markdown(f"### 📋 Details for **{selected_row['Meal Name']}**")
+                
+                # Ingredients Table
+                ing_df = pd.DataFrame(analysis_data.get("ingredients", []))
+                if not ing_df.empty:
+                    ing_df.columns = ["Ingredient", "Weight (g)", "Protein (g)", "Carbs (g)", "Fat (g)"]
+                    st.table(ing_df)
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("**🌿 Health Benefits:**")
+                    for b in analysis_data.get("health_benefits", []):
+                        st.markdown(f"* {b}")
+                        
+                with col_b:
+                    st.markdown("**⚠️ Cautions:**")
+                    for c in analysis_data.get("cautions", []):
+                        st.markdown(f"* {c}")
+
+                st.markdown("**💡 Healthier Swaps:**")
+                for s in analysis_data.get("healthier_swaps", []):
+                    st.markdown(f"* {s}")
+            else:
+                st.info("No detailed AI breakdown stored for this historical entry.")
             
         # Deletion & Editing Section
         st.markdown("---")
