@@ -9,6 +9,9 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+# Singapore Timezone (UTC+8)
+SGT = timezone(timedelta(hours=8))
+
 # Page Setup
 st.set_page_config(
     page_title="Smart AI Nutrition Tracker",
@@ -22,7 +25,7 @@ st.title("🥗 Smart AI Nutrition Tracker")
 # Initialize LocalStorage manager
 local_storage = LocalStorage()
 
-# Backup Notice Banner
+# Privacy Warning Banner
 st.warning("🔒 **Privacy First:** Your diet data is saved locally on this browser. Download your CSV backup regularly to avoid losing data when clearing cache!", icon="💾")
 
 # Load existing data from browser LocalStorage into session state
@@ -35,11 +38,11 @@ if "meal_log" not in st.session_state:
             st.session_state.meal_log = pd.DataFrame(data_dict)
         except Exception:
             st.session_state.meal_log = pd.DataFrame(columns=[
-                "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"
+                "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)", "Analysis"
             ])
     else:
         st.session_state.meal_log = pd.DataFrame(columns=[
-            "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"
+            "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)", "Analysis"
         ])
 
 # Helper function to save DataFrame to browser storage safely
@@ -131,13 +134,7 @@ with tab1:
                     total_fat = sum(item.fat_g for item in analysis.ingredients)
                     total_calories = (total_protein * 4) + (total_carbs * 4) + (total_fat * 9)
 
-                    from datetime import datetime, timedelta, timezone
-
-                    # Set Singapore Time (UTC+8)
-                    SGT = timezone(timedelta(hours=8))
-
-                    # When creating a new meal entry (in Tab 1):
-                    # In Tab 1 when saving a new meal:
+                    # Store timestamp with Singapore Local Time (SGT)
                     new_entry = {
                         "Timestamp": datetime.now(SGT).strftime("%Y-%m-%d %H:%M"),
                         "Meal Name": meal_name,
@@ -145,7 +142,7 @@ with tab1:
                         "Protein (g)": total_protein,
                         "Carbs (g)": total_carbs,
                         "Fat (g)": total_fat,
-                        "Analysis": analysis.model_dump()  # Store rich AI response dict
+                        "Analysis": analysis.model_dump_json() # Store as JSON string
                     }
                     st.session_state.meal_log = pd.concat(
                         [st.session_state.meal_log, pd.DataFrame([new_entry])], 
@@ -179,10 +176,10 @@ with tab1:
                 except Exception as e:
                     st.error(f"Error analyzing image: {e}")
 
-# TAB 2: ANALYTICS, FILTERING & DATA EDITING
+# TAB 2: ANALYTICS, FILTERING & DATA INSPECTION
 with tab2:
     st.subheader("📈 Nutrition Summary & Filtering")
-    df = st.session_state.meal_log
+    df = st.session_state.meal_log.copy()
 
     if df.empty:
         st.info("No meals logged yet. Scan a meal in Tab 1 to start tracking.")
@@ -194,10 +191,9 @@ with tab2:
             horizontal=True
         )
 
-        now = pd.to_datetime(datetime.now())
+        now = pd.to_datetime(datetime.now(SGT))
         filtered_df = df.copy()
         
-        # Safe conversion to datetime for filtering logic
         filtered_df["dt_timestamp"] = pd.to_datetime(filtered_df["Timestamp"], errors="coerce")
 
         if filter_period == "Today":
@@ -227,38 +223,42 @@ with tab2:
             # Chart Visualization
             st.markdown("---")
             st.subheader("📊 Caloric Intake Trend")
-
+            
             if filter_period == "Today":
-                # Group by Meal Name and Timestamp for a clean discrete bar chart today
-                chart_df = filtered_df.groupby(["Timestamp", "Meal Name"])["Calories (kcal)"].sum().reset_index()
+                # Categorical discrete bar chart by Meal Label & Time
+                chart_df = filtered_df.copy()
                 chart_df["Label"] = chart_df["Meal Name"] + " (" + chart_df["Timestamp"].str.split(" ").str[1] + ")"
-                st.bar_chart(chart_df.set_index("Label")[["Calories (kcal)"]], width="stretch")
+                chart_data = chart_df.set_index("Label")[["Calories (kcal)"]]
+                st.bar_chart(chart_data, width='stretch')
             else:
-                # Group by Date for multi-day views
                 filtered_df["Date"] = filtered_df["dt_timestamp"].dt.strftime("%Y-%m-%d")
                 daily_chart = filtered_df.groupby("Date")["Calories (kcal)"].sum()
-                st.bar_chart(daily_chart, width="stretch")
-        st.markdown("---")
-        st.subheader("🔍 Inspect Meal Details")
-        
-        if not df.empty:
-            # Create a dropdown to select any logged meal by Timestamp & Name
-            meal_options = [f"{row['Timestamp']} - {row['Meal Name']}" for idx, row in df.iterrows()]
-            selected_meal_str = st.selectbox("Select a meal to view full AI breakdown:", meal_options)
-            
-            # Retrieve selected row
-            selected_idx = meal_options.index(selected_meal_str)
-            selected_row = df.iloc[selected_idx]
+                st.bar_chart(daily_chart, width='stretch')
 
-            if "Analysis" in selected_row and pd.notna(selected_row["Analysis"]):
-                analysis_data = selected_row["Analysis"]
+        # Meal Detailed Inspection Section
+        st.markdown("---")
+        st.subheader("🔍 Inspect Detailed AI Breakdown")
+        
+        meal_options = [f"{idx}: {row['Timestamp']} - {row['Meal Name']}" for idx, row in df.iterrows()]
+        selected_meal_str = st.selectbox("Select a historical meal record to view breakdown:", meal_options)
+        
+        selected_idx = int(selected_meal_str.split(":")[0])
+        selected_row = df.iloc[selected_idx]
+
+        if "Analysis" in selected_row and pd.notna(selected_row["Analysis"]) and selected_row["Analysis"]:
+            try:
+                raw_analysis = selected_row["Analysis"]
+                # Parse string or dict safely
+                if isinstance(raw_analysis, str):
+                    analysis_data = json.loads(raw_analysis)
+                else:
+                    analysis_data = raw_analysis
+
+                st.markdown(f"### 📋 Details for **{selected_row['Meal Name']}** ({selected_row['Timestamp']})")
                 
-                # Display cached analysis
-                st.markdown(f"### 📋 Details for **{selected_row['Meal Name']}**")
-                
-                # Ingredients Table
-                ing_df = pd.DataFrame(analysis_data.get("ingredients", []))
-                if not ing_df.empty:
+                ing_list = analysis_data.get("ingredients", [])
+                if ing_list:
+                    ing_df = pd.DataFrame(ing_list)
                     ing_df.columns = ["Ingredient", "Weight (g)", "Protein (g)", "Carbs (g)", "Fat (g)"]
                     st.table(ing_df)
 
@@ -276,29 +276,30 @@ with tab2:
                 st.markdown("**💡 Healthier Swaps:**")
                 for s in analysis_data.get("healthier_swaps", []):
                     st.markdown(f"* {s}")
-            else:
-                st.info("No detailed AI breakdown stored for this historical entry.")
-            
+            except Exception as e:
+                st.info("Could not render detailed AI breakdown for this historical entry.")
+        else:
+            st.info("No detailed AI breakdown available for this record.")
+
         # Deletion & Editing Section
         st.markdown("---")
         st.subheader("🗑️ Edit / Delete Incorrect Logs")
-        st.caption("Check the box next to any incorrect meal and click **Delete Selected Rows** below.")
-
-        df_for_edit = df.copy()
-        df_for_edit["Timestamp"] = df_for_edit["Timestamp"].astype(str)
+        
+        display_cols = ["Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"]
+        df_for_edit = df[display_cols].copy()
         df_for_edit.insert(0, "Delete", False)
 
         edited_df = st.data_editor(
             df_for_edit,
             column_config={"Delete": st.column_config.CheckboxColumn(required=True)},
-            disabled=["Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"],
+            disabled=display_cols,
             hide_index=True,
             width='stretch'
         )
 
         if st.button("❌ Delete Selected Rows", type="primary"):
-            rows_to_keep = edited_df[~edited_df["Delete"]].drop(columns=["Delete"])
-            st.session_state.meal_log = rows_to_keep
+            indices_to_keep = edited_df[~edited_df["Delete"]].index
+            st.session_state.meal_log = df.iloc[indices_to_keep].reset_index(drop=True)
             sync_to_local_storage()
             st.success("Selected entries deleted successfully!")
             st.rerun()
@@ -315,7 +316,7 @@ with tab3:
         st.download_button(
             label="📥 Download CSV Backup",
             data=csv_data,
-            file_name=f"nutrition_backup_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"nutrition_backup_{datetime.now(SGT).strftime('%Y%m%d')}.csv",
             mime="text/csv",
             type="primary",
             width='stretch'
@@ -338,7 +339,7 @@ with tab3:
     st.markdown("---")
     if st.button("🗑️ Clear Local App Storage", type="secondary"):
         st.session_state.meal_log = pd.DataFrame(columns=[
-            "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"
+            "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)", "Analysis"
         ])
         local_storage.deleteItem("user_meal_log")
         st.success("App storage cleared!")
