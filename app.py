@@ -32,10 +32,7 @@ if "meal_log" not in st.session_state:
     if raw_storage_data:
         try:
             data_dict = json.loads(raw_storage_data)
-            df_loaded = pd.DataFrame(data_dict)
-            # Safe conversion to datetime
-            df_loaded["Timestamp"] = pd.to_datetime(df_loaded["Timestamp"], errors="coerce")
-            st.session_state.meal_log = df_loaded
+            st.session_state.meal_log = pd.DataFrame(data_dict)
         except Exception:
             st.session_state.meal_log = pd.DataFrame(columns=[
                 "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"
@@ -45,11 +42,11 @@ if "meal_log" not in st.session_state:
             "Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"
         ])
 
-# Helper function to save DataFrame to browser storage
+# Helper function to save DataFrame to browser storage safely
 def sync_to_local_storage():
     df_copy = st.session_state.meal_log.copy()
     if not df_copy.empty:
-        df_copy["Timestamp"] = df_copy["Timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+        df_copy["Timestamp"] = df_copy["Timestamp"].astype(str)
     df_json = df_copy.to_dict(orient="records")
     local_storage.setItem("user_meal_log", json.dumps(df_json))
 
@@ -102,11 +99,11 @@ with tab1:
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Current Meal", use_container_width=True)
+        st.image(image, caption="Current Meal", width='stretch')
         
         meal_name = st.text_input("Meal Label (e.g., Breakfast, Steamed Bun & Tea)", value="Meal")
 
-        if st.button("🔍 Analyze & Save Meal", type="primary", use_container_width=True):
+        if st.button("🔍 Analyze & Save Meal", type="primary", width='stretch'):
             with st.spinner("Analyzing nutritional content..."):
                 try:
                     prompt = """
@@ -117,7 +114,7 @@ with tab1:
                     """
 
                     response = client.models.generate_content(
-                        model="gemini-3.6-flash",
+                        model="gemini-2.5-flash",
                         contents=[image, prompt],
                         config=types.GenerateContentConfig(
                             temperature=0.0,
@@ -134,9 +131,8 @@ with tab1:
                     total_fat = sum(item.fat_g for item in analysis.ingredients)
                     total_calories = (total_protein * 4) + (total_carbs * 4) + (total_fat * 9)
 
-                    # Create new entry with current Timestamp as datetime
                     new_entry = {
-                        "Timestamp": pd.to_datetime(datetime.now().strftime("%Y-%m-%d %H:%M")),
+                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Meal Name": meal_name,
                         "Calories (kcal)": total_calories,
                         "Protein (g)": total_protein,
@@ -176,17 +172,13 @@ with tab1:
                     st.error(f"Error analyzing image: {e}")
 
 # TAB 2: ANALYTICS, FILTERING & DATA EDITING
-# TAB 2: ANALYTICS, FILTERING & DATA EDITING
 with tab2:
     st.subheader("📈 Nutrition Summary & Filtering")
-    df = st.session_state.meal_log.copy()
+    df = st.session_state.meal_log
 
     if df.empty:
         st.info("No meals logged yet. Scan a meal in Tab 1 to start tracking.")
     else:
-        # Guarantee Timestamp is datetime before filtering
-        df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
-
         # Time Filter Selector
         filter_period = st.radio(
             "Select Time Horizon Filter:",
@@ -196,15 +188,18 @@ with tab2:
 
         now = pd.to_datetime(datetime.now())
         filtered_df = df.copy()
+        
+        # Safe conversion to datetime for filtering logic
+        filtered_df["dt_timestamp"] = pd.to_datetime(filtered_df["Timestamp"], errors="coerce")
 
         if filter_period == "Today":
-            filtered_df = filtered_df[filtered_df["Timestamp"].dt.date == now.date()]
+            filtered_df = filtered_df[filtered_df["dt_timestamp"].dt.date == now.date()]
         elif filter_period == "Last 7 Days (Weekly)":
             cutoff = now - timedelta(days=7)
-            filtered_df = filtered_df[filtered_df["Timestamp"] >= cutoff]
+            filtered_df = filtered_df[filtered_df["dt_timestamp"] >= cutoff]
         elif filter_period == "Last 30 Days (Monthly)":
             cutoff = now - timedelta(days=30)
-            filtered_df = filtered_df[filtered_df["Timestamp"] >= cutoff]
+            filtered_df = filtered_df[filtered_df["dt_timestamp"] >= cutoff]
 
         # Summary Metrics
         if filtered_df.empty:
@@ -224,7 +219,7 @@ with tab2:
             # Chart Visualization
             st.markdown("---")
             st.subheader("📊 Caloric Intake Trend")
-            chart_data = filtered_df.set_index("Timestamp")[["Calories (kcal)"]]
+            chart_data = filtered_df.set_index("dt_timestamp")[["Calories (kcal)"]]
             st.bar_chart(chart_data)
 
         # Deletion & Editing Section
@@ -232,9 +227,8 @@ with tab2:
         st.subheader("🗑️ Edit / Delete Incorrect Logs")
         st.caption("Check the box next to any incorrect meal and click **Delete Selected Rows** below.")
 
-        # Display Data Editor with deletion checkbox
         df_for_edit = df.copy()
-        df_for_edit["Timestamp"] = df_for_edit["Timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+        df_for_edit["Timestamp"] = df_for_edit["Timestamp"].astype(str)
         df_for_edit.insert(0, "Delete", False)
 
         edited_df = st.data_editor(
@@ -242,13 +236,11 @@ with tab2:
             column_config={"Delete": st.column_config.CheckboxColumn(required=True)},
             disabled=["Timestamp", "Meal Name", "Calories (kcal)", "Protein (g)", "Carbs (g)", "Fat (g)"],
             hide_index=True,
-            use_container_width=True
+            width='stretch'
         )
 
         if st.button("❌ Delete Selected Rows", type="primary"):
-            # Filter out deleted rows
             rows_to_keep = edited_df[~edited_df["Delete"]].drop(columns=["Delete"])
-            rows_to_keep["Timestamp"] = pd.to_datetime(rows_to_keep["Timestamp"])
             st.session_state.meal_log = rows_to_keep
             sync_to_local_storage()
             st.success("Selected entries deleted successfully!")
@@ -261,7 +253,7 @@ with tab3:
 
     if not df.empty:
         df_export = df.copy()
-        df_export["Timestamp"] = df_export["Timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+        df_export["Timestamp"] = df_export["Timestamp"].astype(str)
         csv_data = df_export.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download CSV Backup",
@@ -269,7 +261,7 @@ with tab3:
             file_name=f"nutrition_backup_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             type="primary",
-            use_container_width=True
+            width='stretch'
         )
 
     st.markdown("---")
@@ -278,7 +270,7 @@ with tab3:
     if uploaded_csv is not None:
         try:
             restored_df = pd.read_csv(uploaded_csv)
-            restored_df["Timestamp"] = pd.to_datetime(restored_df["Timestamp"])
+            restored_df["Timestamp"] = restored_df["Timestamp"].astype(str)
             st.session_state.meal_log = restored_df
             sync_to_local_storage()
             st.success("✅ Successfully restored data to your device!")
