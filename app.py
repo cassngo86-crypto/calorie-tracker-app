@@ -33,8 +33,8 @@ if "meal_log" not in st.session_state:
         try:
             data_dict = json.loads(raw_storage_data)
             df_loaded = pd.DataFrame(data_dict)
-            # Ensure Timestamp is datetime format
-            df_loaded["Timestamp"] = pd.to_datetime(df_loaded["Timestamp"])
+            # Safe conversion to datetime
+            df_loaded["Timestamp"] = pd.to_datetime(df_loaded["Timestamp"], errors="coerce")
             st.session_state.meal_log = df_loaded
         except Exception:
             st.session_state.meal_log = pd.DataFrame(columns=[
@@ -176,13 +176,17 @@ with tab1:
                     st.error(f"Error analyzing image: {e}")
 
 # TAB 2: ANALYTICS, FILTERING & DATA EDITING
+# TAB 2: ANALYTICS, FILTERING & DATA EDITING
 with tab2:
     st.subheader("📈 Nutrition Summary & Filtering")
-    df = st.session_state.meal_log
+    df = st.session_state.meal_log.copy()
 
     if df.empty:
         st.info("No meals logged yet. Scan a meal in Tab 1 to start tracking.")
     else:
+        # Guarantee Timestamp is datetime before filtering
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+
         # Time Filter Selector
         filter_period = st.radio(
             "Select Time Horizon Filter:",
