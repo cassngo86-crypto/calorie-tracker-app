@@ -21,9 +21,7 @@ export default function App() {
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64Image }),
       });
 
@@ -33,9 +31,21 @@ export default function App() {
         throw new Error(data.error || 'Analysis failed');
       }
 
-      console.log('Analysis result:', data);
+      // Map API response keys to your meal object structure
+      const newMeal = {
+        name: data.food_name || 'Scanned Meal',
+        calories: Number(data.calories) || 0,
+        protein: Number(data.protein_g) || 0,
+        carbs: Number(data.carbs_g) || 0,
+        fat: Number(data.fat_g) || 0,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      // Save to Dexie / local state
+      await db.meals.add(newMeal); 
+
     } catch (err) {
-      console.error('API Call Error:', err);
+      console.error('Scan Error:', err);
       alert('Analysis failed. Please try again.');
     }
   };
