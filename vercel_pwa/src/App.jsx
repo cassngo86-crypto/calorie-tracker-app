@@ -92,15 +92,17 @@ export default function App() {
 
             <div className="space-y-2">
               <h3 className="font-semibold text-gray-700">Logged Meals</h3>
-              {meals.map((m) => (
-                <div key={m.id} className="bg-white p-3 rounded-lg shadow-sm flex justify-between items-center">
-                  <div>
-                    <p className="font-medium text-gray-800">{m.mealName}</p>
-                    <p className="text-xs text-gray-500">{m.timestamp} - {m.calories} kcal</p>
+              {meals.map((meal) => (
+                <div key={meal.id} className="p-3 bg-white rounded-lg shadow mb-2">
+                  {/* Display Food Name */}
+                  <h3 className="font-semibold text-gray-800">{meal.name || meal.food_name || 'Scanned Meal'}</h3>
+                  
+                  <div className="flex justify-between items-center text-sm text-gray-500">
+                    <span>{meal.timestamp} - {meal.calories} kcal</span>
+                    <button onClick={() => handleDelete(meal.id)}>
+                      <TrashIcon className="w-4 h-4 text-red-500" />
+                    </button>
                   </div>
-                  <button onClick={() => db.meals.delete(m.id)} className="text-red-500 p-1">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
               ))}
             </div>
