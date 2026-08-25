@@ -8,45 +8,40 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('scan');
   const [loading, setLoading] = useState(false);
   const meals = useLiveQuery(() => db.meals.toArray()) || [];
+  
+ 
+  const handleImageCapture = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  const handleImageCapture = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const reader = new FileReader();
+  reader.onloadend = async () => {
+    try {
+      const base64Image = reader.result;
 
-    setLoading(true);
-    const reader = new FileReader();
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: base64Image }),
+      });
 
-    reader.onloadend = async () => {
-      const base64Data = reader.result.split(',')[1];
-      try {
-        const res = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64Data })
-        });
-        const data = await res.json();
+      const data = await response.json();
 
-        // Save to IndexedDB
-        await db.meals.add({
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          date: new Date().toLocaleDateString(),
-          mealName: data.mealName || 'Scanned Meal',
-          calories: data.calories || 0,
-          protein: data.protein || 0,
-          carbs: data.carbs || 0,
-          fat: data.fat || 0
-        });
-
-        setActiveTab('analytics');
-      } catch (err) {
-        alert('Analysis failed. Please try again.');
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error(data.error || 'Analysis failed');
       }
-    };
 
-    reader.readAsDataURL(file);
+      console.log('Analysis result:', data);
+    } catch (err) {
+      console.error('API Call Error:', err);
+      alert('Analysis failed. Please try again.');
+    }
   };
+
+  reader.readAsDataURL(file);
+};
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-gray-50 flex flex-col justify-between pb-16">

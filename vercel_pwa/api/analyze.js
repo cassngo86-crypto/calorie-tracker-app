@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
 export default async function handler(req, res) {
-  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -17,21 +16,31 @@ export default async function handler(req, res) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on Vercel environment variables.' });
+      return res.status(500).json({ error: 'GEMINI_API_KEY is missing on Vercel environment variables.' });
     }
 
-    const { image } = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+      }
+    }
+
+    const { image } = body || {};
     if (!image) {
-      return res.status(400).json({ error: 'No image data provided.' });
+      return res.status(400).json({ error: 'No image data provided in request body.' });
     }
 
-    // Initialize Gemini Client
-    const ai = new GoogleGenAI({ apiKey });
-
-    // Clean base64 string
+    // Extract mime type (e.g. image/jpeg, image/png) and raw base64 data
+    const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
 
-    const prompt = `Analyze this food image. Return ONLY a raw JSON object with no markdown formatting:
+    const ai = new GoogleGenAI({ apiKey });
+
+    const prompt = `Analyze this food image. Return strictly raw JSON with no markdown formatting:
     {
       "food_name": "Name of food",
       "calories": 400,
@@ -43,27 +52,24 @@ export default async function handler(req, res) {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
-        { text: prompt },
         {
           inlineData: {
-            mimeType: 'image/jpeg',
+            mimeType: mimeType,
             data: base64Data,
           },
         },
+        { text: prompt },
       ],
     });
 
     const text = response.text || '';
-    // Strip markdown wrappers if present
     const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(cleanJson);
 
     return res.status(200).json(parsedData);
   } catch (error) {
-    console.error('Gemini API Error:', error);
-    return res.status(500).json({ 
-      error: 'Failed to process image analysis', 
-      details: error.message || String(error) 
-    });
+    console.error('Server error:', error);
+    return res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 }
+ 
