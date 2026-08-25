@@ -34,3 +34,4 @@ Thumbs.db
 
 # Local SQLite Database (if used)
 *.db
+.vercel
