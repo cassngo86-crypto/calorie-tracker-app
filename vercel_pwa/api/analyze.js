@@ -37,12 +37,13 @@ export default async function handler(req, res) {
     }
   }
 
-  const { image } = body || {};
+    // Accept either 'image' or 'imageBase64' payload key
+  const image = body?.image || body?.imageBase64;
 
   if (!image) {
     console.error('Validation failed: No image field in request body.', body ? Object.keys(body) : 'Body is null');
-    return res.status(400).json({ error: 'Missing "image" property in request payload.' });
-  }
+    return res.status(400).json({ error: 'Missing "image" or "imageBase64" property in request payload.' });
+}
 
   try {
     const apiKey = process.env.GEMINI_API_KEY;
