@@ -29,7 +29,6 @@ export default function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        // Passes backend error message (including 503 high demand notices)
         throw new Error(data.error || 'Analysis failed');
       }
 
@@ -43,15 +42,11 @@ export default function App() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      // 1. Save to Dexie local DB
-      const id = await db.meals.add(newMeal); 
-
-      // 2. Update React state immediately so the UI refreshes
-      setMeals((prevMeals) => [...prevMeals, { ...newMeal, id }]);
+      // Writing to Dexie automatically triggers a UI re-render
+      await db.meals.add(newMeal);
 
     } catch (err) {
       console.error('Scan Error:', err);
-      // Display the actual error message (e.g. server busy alert or fallback)
       alert(err.message || 'Analysis failed. Please try again.');
     }
   };
