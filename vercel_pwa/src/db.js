@@ -6,7 +6,7 @@ db.version(1).stores({
   meals: '++id, name, calories, timestamp',
 });
 
-// Explicitly open the database connection on load
-db.open().catch((err) => {
-  console.error('Failed to open IndexedDB:', err.stack || err);
-});
+// Force database creation immediately upon import
+db.open()
+  .then(() => console.log('NutriTrackDB successfully opened/created.'))
+  .catch((err) => console.error('IndexedDB opening error:', err));
