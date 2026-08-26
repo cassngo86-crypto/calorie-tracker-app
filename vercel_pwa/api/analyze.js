@@ -8,6 +8,7 @@ export const config = {
   },
 };
 
+// Exponential backoff helper for temporary spikes (503)
 async function generateContentWithRetry(ai, params, retries = 3, delay = 1000) {
   try {
     return await ai.models.generateContent(params);
@@ -41,7 +42,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing on Vercel.' });
     }
 
-    // Safely parse body if sent as raw string
     let body = req.body;
     if (typeof body === 'string') {
       try {
@@ -62,36 +62,38 @@ export default async function handler(req, res) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Force structured JSON output using responseSchema
+    // Request content generation using gemini-3.6-flash
     const response = await generateContentWithRetry(
       ai,
       {
         model: 'gemini-3.6-flash',
         contents: [
           { inlineData: { mimeType, data: base64Data } },
-          { text: 'Analyze this food photo. Estimate total calories and macro nutrients accurately.' },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              food_name: { type: 'STRING' },
-              calories: { type: 'NUMBER' },
-              protein_g: { type: 'NUMBER' },
-              carbs_g: { type: 'NUMBER' },
-              fat_g: { type: 'NUMBER' },
-            },
-            required: ['food_name', 'calories', 'protein_g', 'carbs_g', 'fat_g'],
+          {
+            text: `Analyze this food image. Return STRICTLY raw valid JSON with no markdown block fences or conversational text using exact format:
+            {
+              "food_name": "String",
+              "calories": 400,
+              "protein_g": 25,
+              "carbs_g": 40,
+              "fat_g": 15
+            }`,
           },
-        },
+        ],
       },
       3,
       1000
     );
 
-    const rawText = response.text || '{}';
-    const parsedData = JSON.parse(rawText);
+    const rawText = response.text || '';
+    
+    // Clean code blocks and sanitize string output cleanly
+    const jsonString = rawText
+      .replace(/```(?:json)?/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    const parsedData = JSON.parse(jsonString);
 
     return res.status(200).json({
       food_name: parsedData.food_name || 'Scanned Meal',
