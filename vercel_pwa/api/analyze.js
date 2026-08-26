@@ -8,21 +8,6 @@ export const config = {
   },
 };
 
-// Exponential backoff helper for temporary spikes (503)
-async function generateContentWithRetry(ai, params, retries = 3, delay = 1000) {
-  try {
-    return await ai.models.generateContent(params);
-  } catch (error) {
-    const is503 = error?.status === 503 || error?.message?.includes('503') || error?.message?.includes('high demand');
-    if (retries > 0 && is503) {
-      console.warn(`Gemini API 503 high demand spike. Retrying in ${delay}ms... (${retries} attempts left)`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return generateContentWithRetry(ai, params, retries - 1, delay * 2);
-    }
-    throw error;
-  }
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -36,24 +21,33 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // 1. Inspect incoming payload in Vercel Logs
+  console.log('Incoming headers:', req.headers);
+  console.log('Body type:', typeof req.body);
+
+  let body = req.body;
+
+  // Handle payload stringification safely
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (parseErr) {
+      console.error('Failed to parse JSON body string:', parseErr.message);
+      return res.status(400).json({ error: 'Invalid JSON string in request body' });
+    }
+  }
+
+  const { image } = body || {};
+
+  if (!image) {
+    console.error('Validation failed: No image field in request body.', body ? Object.keys(body) : 'Body is null');
+    return res.status(400).json({ error: 'Missing "image" property in request payload.' });
+  }
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing on Vercel.' });
-    }
-
-    let body = req.body;
-    if (typeof body === 'string') {
-      try {
-        body = JSON.parse(body);
-      } catch (e) {
-        return res.status(400).json({ error: 'Invalid JSON body payload.' });
-      }
-    }
-
-    const { image } = body || {};
-    if (!image) {
-      return res.status(400).json({ error: 'No image data provided in request body.' });
     }
 
     const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
@@ -62,38 +56,26 @@ export default async function handler(req, res) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Request content generation using gemini-3.6-flash
-    const response = await generateContentWithRetry(
-      ai,
-      {
-        model: 'gemini-3.6-flash',
-        contents: [
-          { inlineData: { mimeType, data: base64Data } },
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: [
+        { inlineData: { mimeType, data: base64Data } },
+        {
+          text: `Analyze this food image. Return STRICTLY raw JSON with:
           {
-            text: `Analyze this food image. Return STRICTLY raw valid JSON with no markdown block fences or conversational text using exact format:
-            {
-              "food_name": "String",
-              "calories": 400,
-              "protein_g": 25,
-              "carbs_g": 40,
-              "fat_g": 15
-            }`,
-          },
-        ],
-      },
-      3,
-      1000
-    );
+            "food_name": "String",
+            "calories": 400,
+            "protein_g": 25,
+            "carbs_g": 40,
+            "fat_g": 15
+          }`,
+        },
+      ],
+    });
 
     const rawText = response.text || '';
-    
-    // Clean code blocks and sanitize string output cleanly
-    const jsonString = rawText
-      .replace(/```(?:json)?/gi, '')
-      .replace(/```/g, '')
-      .trim();
-
-    const parsedData = JSON.parse(jsonString);
+    const cleanJson = rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+    const parsedData = JSON.parse(cleanJson);
 
     return res.status(200).json({
       food_name: parsedData.food_name || 'Scanned Meal',
@@ -103,7 +85,7 @@ export default async function handler(req, res) {
       fat_g: Number(parsedData.fat_g) || 0,
     });
   } catch (error) {
-    console.error('Server execution error:', error);
+    console.error('Gemini execution error:', error);
     return res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 }
