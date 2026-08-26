@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import { Camera, BarChart2, Plus, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { Trash2, Plus, BarChart2 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('scan');
@@ -99,8 +100,8 @@ export default function App() {
                   
                   <div className="flex justify-between items-center text-sm text-gray-500">
                     <span>{meal.timestamp} - {meal.calories} kcal</span>
-                    <button onClick={() => handleDelete(meal.id)}>
-                      <TrashIcon className="w-4 h-4 text-red-500" />
+                    <button onClick={() => handleDelete(meal.id)} aria-label="Delete meal">
+                      <Trash2 className="w-5 h-5 text-red-500 hover:text-red-700 cursor-pointer" />
                     </button>
                   </div>
                 </div>
