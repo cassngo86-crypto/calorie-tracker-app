@@ -66,7 +66,7 @@ export default async function handler(req, res) {
     const response = await generateContentWithRetry(
       ai,
       {
-        model: 'gemini-1.5-flash',
+        model: 'gemini-3.6-flash',
         contents: [
           { inlineData: { mimeType, data: base64Data } },
           { text: 'Analyze this food photo. Estimate total calories and macro nutrients accurately.' },
