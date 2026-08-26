@@ -78,8 +78,19 @@ export default async function handler(req, res) {
     );
 
     const text = response.text || '';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(cleanJson);
+    const cleanJson = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
+    let parsedData;
+    try {
+      parsedData = JSON.parse(cleanJson);
+    } catch (parseError) {
+      console.error('JSON Parsing Error:', parseError);
+      console.error('Raw Gemini Response Text:', text);
+      
+      return res.status(500).json({ 
+        error: 'Failed to parse AI response. The model returned malformed data.',
+        rawResponse: text 
+      });
+    }
 
     return res.status(200).json(parsedData);
   } catch (error) {
