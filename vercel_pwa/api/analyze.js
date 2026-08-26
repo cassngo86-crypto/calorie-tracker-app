@@ -1,5 +1,20 @@
 import { GoogleGenAI } from '@google/genai';
 
+// Helper function for exponential backoff retries
+async function generateContentWithRetry(ai, params, retries = 3, delay = 1000) {
+  try {
+    return await ai.models.generateContent(params);
+  } catch (error) {
+    const is503 = error?.status === 503 || error?.message?.includes('503') || error?.message?.includes('high demand');
+    if (retries > 0 && is503) {
+      console.warn(`Gemini API 503 high demand spike. Retrying in ${delay}ms... (${retries} attempts left)`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return generateContentWithRetry(ai, params, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -16,7 +31,7 @@ export default async function handler(req, res) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY is missing on Vercel environment variables.' });
+      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing on Vercel.' });
     }
 
     let body = req.body;
@@ -33,7 +48,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No image data provided in request body.' });
     }
 
-    // Extract mime type (e.g. image/jpeg, image/png) and raw base64 data
     const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
@@ -49,18 +63,19 @@ export default async function handler(req, res) {
       "fat_g": 15
     }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-          },
-        },
-        { text: prompt },
-      ],
-    });
+    // Execute API request with automatic 3x retry on 503 capacity spikes
+    const response = await generateContentWithRetry(
+      ai,
+      {
+        model: 'gemini-2.5-flash',
+        contents: [
+          { inlineData: { mimeType, data: base64Data } },
+          { text: prompt },
+        ],
+      },
+      3,    // Max retries
+      1000  // Initial delay in ms (1s -> 2s -> 4s)
+    );
 
     const text = response.text || '';
     const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -69,7 +84,13 @@ export default async function handler(req, res) {
     return res.status(200).json(parsedData);
   } catch (error) {
     console.error('Server error:', error);
-    return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    
+    // Friendly error messaging back to frontend
+    const isBusy = error?.status === 503 || error?.message?.includes('high demand');
+    return res.status(isBusy ? 503 : 500).json({ 
+      error: isBusy 
+        ? 'Gemini servers are experiencing temporary high demand. Please wait a moment and try scanning again.' 
+        : error.message || 'Internal Server Error' 
+    });
   }
 }
- 
