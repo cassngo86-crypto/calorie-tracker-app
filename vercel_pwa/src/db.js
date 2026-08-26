@@ -2,11 +2,13 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('NutriTrackDB');
 
-// Version 2 forces creation of the meals store
-db.version(2).stores({
+db.version(1).stores({
   meals: '++id, name, calories, timestamp',
 });
 
-db.open().catch((err) => {
-  console.error('Dexie open error:', err);
+// Auto-open and catch version/lock conflicts
+db.open().catch(async (err) => {
+  console.error('Failed to open NutriTrackDB, recreating...', err);
+  await db.delete();
+  await db.open();
 });
