@@ -1,5 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '4mb',
+    },
+  },
+};
 // Helper function for exponential backoff retries
 async function generateContentWithRetry(ai, params, retries = 3, delay = 1000) {
   try {
@@ -65,34 +73,35 @@ export default async function handler(req, res) {
 
     // Execute API request with automatic 3x retry on 503 capacity spikes
     const response = await generateContentWithRetry(
-      ai,
-      {
-        model: 'gemini-3.6-flash',
-        contents: [
-          { inlineData: { mimeType, data: base64Data } },
-          { text: prompt },
-        ],
+  ai,
+  {
+    model: 'gemini-3.6-flash',
+    contents: [
+      { inlineData: { mimeType, data: base64Data } },
+      { text: "Analyze this food image and output the nutritional content." },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          food_name: { type: "STRING" },
+          calories: { type: "NUMBER" },
+          protein_g: { type: "NUMBER" },
+          carbs_g: { type: "NUMBER" },
+          fat_g: { type: "NUMBER" },
+        },
+        required: ["food_name", "calories", "protein_g", "carbs_g", "fat_g"],
       },
-      3,    // Max retries
-      1000  // Initial delay in ms (1s -> 2s -> 4s)
-    );
+    },
+  },
+  3,
+  1000
+);
 
-    const text = response.text || '';
-    const cleanJson = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
-    let parsedData;
-    try {
-      parsedData = JSON.parse(cleanJson);
-    } catch (parseError) {
-      console.error('JSON Parsing Error:', parseError);
-      console.error('Raw Gemini Response Text:', text);
-      
-      return res.status(500).json({ 
-        error: 'Failed to parse AI response. The model returned malformed data.',
-        rawResponse: text 
-      });
-    }
-
-    return res.status(200).json(parsedData);
+// When responseMimeType is application/json, response.text is guaranteed clean JSON string
+const parsedData = JSON.parse(response.text);
+return res.status(200).json(parsedData);
   } catch (error) {
     console.error('Server error:', error);
     
