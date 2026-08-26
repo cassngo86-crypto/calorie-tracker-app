@@ -32,17 +32,26 @@ export default function App() {
         throw new Error(data.error || 'Analysis failed');
       }
 
-      // Map API response keys to your meal object structure
+      // Safe helper to strip non-numeric characters if string is returned
+      const parseNum = (val) => {
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+          const num = parseFloat(val.replace(/[^0-9.]/g, ''));
+          return isNaN(num) ? 0 : num;
+        }
+        return 0;
+      };
+
       const newMeal = {
         name: data.food_name || 'Scanned Meal',
-        calories: Number(data.calories) || 0,
-        protein: Number(data.protein_g) || 0,
-        carbs: Number(data.carbs_g) || 0,
-        fat: Number(data.fat_g) || 0,
+        calories: parseNum(data.calories),
+        protein: parseNum(data.protein_g),
+        carbs: parseNum(data.carbs_g),
+        fat: parseNum(data.fat_g),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      // Writing to Dexie automatically triggers a UI re-render
+      // Add to Dexie DB (live query will auto-update UI)
       await db.meals.add(newMeal);
 
     } catch (err) {

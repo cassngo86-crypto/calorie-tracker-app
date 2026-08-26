@@ -8,7 +8,6 @@ export const config = {
   },
 };
 
-// Exponential backoff helper for temporary spikes
 async function generateContentWithRetry(ai, params, retries = 3, delay = 1000) {
   try {
     return await ai.models.generateContent(params);
@@ -42,7 +41,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing on Vercel.' });
     }
 
-    // Handle stringified or pre-parsed Vercel request bodies safely
+    // Safely parse body if sent as raw string
     let body = req.body;
     if (typeof body === 'string') {
       try {
@@ -63,27 +62,44 @@ export default async function handler(req, res) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Use valid Google model identifier: gemini-1.5-flash
+    // Force structured JSON output using responseSchema
     const response = await generateContentWithRetry(
       ai,
       {
         model: 'gemini-1.5-flash',
         contents: [
           { inlineData: { mimeType, data: base64Data } },
-          {
-            text: 'Analyze this food image. Return strictly raw JSON with keys: food_name, calories, protein_g, carbs_g, fat_g.',
-          },
+          { text: 'Analyze this food photo. Estimate total calories and macro nutrients accurately.' },
         ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              food_name: { type: 'STRING' },
+              calories: { type: 'NUMBER' },
+              protein_g: { type: 'NUMBER' },
+              carbs_g: { type: 'NUMBER' },
+              fat_g: { type: 'NUMBER' },
+            },
+            required: ['food_name', 'calories', 'protein_g', 'carbs_g', 'fat_g'],
+          },
+        },
       },
       3,
       1000
     );
 
-    const text = response.text || '';
-    const cleanJson = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
-    const parsedData = JSON.parse(cleanJson);
+    const rawText = response.text || '{}';
+    const parsedData = JSON.parse(rawText);
 
-    return res.status(200).json(parsedData);
+    return res.status(200).json({
+      food_name: parsedData.food_name || 'Scanned Meal',
+      calories: Number(parsedData.calories) || 0,
+      protein_g: Number(parsedData.protein_g) || 0,
+      carbs_g: Number(parsedData.carbs_g) || 0,
+      fat_g: Number(parsedData.fat_g) || 0,
+    });
   } catch (error) {
     console.error('Server execution error:', error);
     return res.status(500).json({ error: error.message || 'Internal Server Error' });
