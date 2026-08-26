@@ -1,7 +1,6 @@
 import Dexie from 'dexie';
 
-export const db = new Dexie('CalorieTrackerDB');
-
+export const db = new Dexie('NutriTrackDB');
 db.version(1).stores({
-  meals: '++id, timestamp, date, mealName, calories, protein, carbs, fat'
+  meals: '++id, name, calories, timestamp', 
 });
