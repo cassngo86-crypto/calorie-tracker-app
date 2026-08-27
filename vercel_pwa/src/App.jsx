@@ -90,6 +90,40 @@ export default function App() {
     }
   };
 
+  // 📥 Export Backup Function
+  const handleExportBackup = async () => {
+    const allMeals = await db.meals.toArray();
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allMeals, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `nutritrack_backup_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  // 📤 Import Restore Function
+  const handleImportBackup = (event) => {
+    const fileReader = new FileReader();
+    if (!event.target.files[0]) return;
+    
+    fileReader.readAsText(event.target.files[0], "UTF-8");
+    fileReader.onload = async (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result);
+        if (Array.isArray(importedData)) {
+          await db.meals.clear();
+          await db.meals.bulkAdd(importedData);
+          alert("Backup restored successfully!");
+        } else {
+          alert("Invalid backup file format.");
+        }
+      } catch (err) {
+        alert("Failed to restore backup: " + err.message);
+      }
+    };
+  };
+
   // Find inspected record from dropdown or fallback to latest live analysis
   const inspectedMeal = meals.find((m) => m.id.toString() === selectedInspectId) || (currentAnalysis ? {
     name: currentAnalysis.food_name || mealLabel || 'Meal',
@@ -119,7 +153,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 📊 FEATURE 1: Caloric Intake Trend Chart */}
+      {/* 📊 Caloric Intake Trend Chart */}
       {meals.length > 0 && (
         <div style={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
           <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 'bold', color: '#111827' }}>📊 Caloric Intake Trend</h3>
@@ -185,7 +219,7 @@ export default function App() {
         )}
       </div>
 
-      {/* 🔍 FEATURE 2: Inspect Detailed AI Breakdown with Dropdown */}
+      {/* 🔍 Inspect Detailed AI Breakdown */}
       <div style={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
         <h3 style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: 'bold', color: '#111827' }}>🔍 Inspect Detailed AI Breakdown</h3>
         <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 8px 0' }}>Select a historical meal record to view breakdown:</p>
@@ -268,9 +302,9 @@ export default function App() {
         )}
       </div>
 
-      {/* ✏️ FEATURE 3: Edit / Delete Incorrect Logs Batch Table */}
+      {/* ✏️ Edit / Delete Incorrect Logs Table */}
       {meals.length > 0 && (
-        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '16px', borderRadius: '12px' }}>
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
           <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 'bold', color: '#111827' }}>✏️ Edit / Delete Incorrect Logs</h3>
           
           <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', marginBottom: '12px' }}>
@@ -326,6 +360,53 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* 💾 Backup & Restore Data (NEW SECTION) */}
+      <div style={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', padding: '16px', borderRadius: '12px' }}>
+        <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 'bold', color: '#111827' }}>💾 Backup & Restore Data</h3>
+        
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleExportBackup}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              cursor: 'pointer',
+              textAlign: 'center'
+            }}
+          >
+            📥 Export Backup (JSON)
+          </button>
+
+          <label
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              backgroundColor: '#059669',
+              color: '#ffffff',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              cursor: 'pointer',
+              textAlign: 'center'
+            }}
+          >
+            📤 Import Restore
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleImportBackup}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+      </div>
 
     </div>
   );
