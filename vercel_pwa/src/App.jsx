@@ -1,164 +1,236 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 
 export default function App() {
-  // Dexie automatically updates the UI whenever db.meals changes
   const meals = useLiveQuery(() => db.meals.toArray()) || [];
+  
+  // Staging state before user clicks "Analyze & Save Meal"
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [mealLabel, setMealLabel] = useState('breakfast');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [currentAnalysis, setCurrentAnalysis] = useState(null);
 
-  // Calculate total intake for display
   const totalCalories = meals.reduce((sum, meal) => sum + (meal.calories || 0), 0);
 
-  // Helper to extract clean numbers from API response strings/numbers
-  const parseNum = (val) => {
-    if (typeof val === 'number') return val;
-    if (typeof val === 'string') {
-      const num = parseFloat(val.replace(/[^0-9.]/g, ''));
-      return isNaN(num) ? 0 : num;
-    }
-    return 0;
-  };
-
-  const handleImageCapture = (e) => {
+  const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const base64Image = reader.result;
-
-        // Send payload matching the backend expected key (imageBase64 / image)
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64Image }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Analysis failed');
-        }
-
-        // Map response attributes to the local Dexie schema
-        const newMeal = {
-          name: data.food_name || 'Scanned Meal',
-          calories: parseNum(data.calories),
-          protein: parseNum(data.protein_g),
-          carbs: parseNum(data.carbs_g),
-          fat: parseNum(data.fat_g),
-          image: base64Image, // Store base64 string for preview
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-
-        // Adding to Dexie automatically triggers a re-render via useLiveQuery
-        await db.meals.add(newMeal);
-      } catch (err) {
-        console.error('Scan Error:', err);
-        alert(err.message || 'Analysis failed. Please try again.');
-      }
+    reader.onloadend = () => {
+      setSelectedImage(reader.result);
+      setCurrentAnalysis(null); // Reset previous analysis card
     };
-
     reader.readAsDataURL(file);
   };
 
-  const handleDelete = async (id) => {
-    if (id) {
-      await db.meals.delete(id);
+  const handleAnalyzeAndSave = async () => {
+    if (!selectedImage) return;
+
+    setIsAnalyzing(true);
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: selectedImage,
+          mealLabel: mealLabel,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Analysis failed');
+
+      setCurrentAnalysis(data);
+
+      // Save complete record into Dexie
+      const record = {
+        name: data.food_name || mealLabel || 'Scanned Meal',
+        calories: Number(data.calories) || 0,
+        protein: Number(data.protein_g) || 0,
+        carbs: Number(data.carbs_g) || 0,
+        fat: Number(data.fat_g) || 0,
+        ingredients: data.ingredients || [],
+        health_benefits: data.health_benefits || [],
+        cautions: data.cautions || [],
+        healthier_swaps: data.healthier_swaps || [],
+        image: selectedImage,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      await db.meals.add(record);
+    } catch (err) {
+      alert(err.message || 'Error analyzing meal');
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-10">
-      {/* Header */}
+    <div className="min-h-screen bg-gray-50 pb-12">
       <header className="bg-emerald-600 text-white p-4 shadow-md flex items-center justify-center gap-2">
         <span className="text-2xl">🥗</span>
         <h1 className="text-xl font-bold">NutriTrack PWA</h1>
       </header>
 
-      <main className="max-w-md mx-auto p-4 space-y-6">
-        {/* Total Intake Summary Card */}
+      <main className="max-w-xl mx-auto p-4 space-y-6">
+        {/* Total Intake Overview */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
           <h2 className="text-gray-500 font-medium text-sm">Today's Total Intake</h2>
-          <div className="text-4xl font-extrabold text-emerald-600 my-2">
+          <div className="text-4xl font-extrabold text-emerald-600 my-1">
             {totalCalories} <span className="text-lg font-normal text-gray-500">kcal</span>
           </div>
         </div>
 
-        {/* Scan Food Button */}
-        <div className="flex justify-center">
-          <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-xl shadow-md transition flex items-center gap-2">
-            <span>📷</span> Scan Food Photo
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleImageCapture}
-              className="hidden"
-            />
-          </label>
+        {/* Scan & Analyze Section (Streamlit Style) */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+          <h2 className="font-bold text-gray-800 text-lg">Scan Meal</h2>
+
+          {!selectedImage ? (
+            <label className="border-2 border-dashed border-emerald-300 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-emerald-50 transition">
+              <span className="text-4xl mb-2">📷</span>
+              <span className="text-sm font-semibold text-emerald-700">Upload or Take Photo</span>
+              <input type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
+            </label>
+          ) : (
+            <div className="space-y-4">
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 max-h-80 flex items-center justify-center bg-black">
+                <img src={selectedImage} alt="Current Meal" className="object-contain w-full h-full" />
+              </div>
+              <p className="text-xs text-center text-gray-400">Current Meal</p>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Meal Label (e.g., Breakfast, Steamed Bun & Tea)
+                </label>
+                <input
+                  type="text"
+                  value={mealLabel}
+                  onChange={(e) => setMealLabel(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-400 outline-none"
+                  placeholder="breakfast"
+                />
+              </div>
+
+              <button
+                onClick={handleAnalyzeAndSave}
+                disabled={isAnalyzing}
+                className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2"
+              >
+                {isAnalyzing ? '🔍 Analyzing Meal...' : '🔍 Analyze & Save Meal'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Logged Meals List */}
+        {/* Dynamic Analysis Display Card */}
+        {currentAnalysis && (
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+            <div>
+              <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                📋 Ingredient Breakdown
+              </h3>
+
+              {/* Ingredient Table */}
+              <div className="overflow-x-auto mt-3">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b text-gray-400 font-semibold">
+                      <th className="py-2">Ingredient</th>
+                      <th className="py-2">Weight (g)</th>
+                      <th className="py-2">Protein (g)</th>
+                      <th className="py-2">Carbs (g)</th>
+                      <th className="py-2">Fat (g)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y text-gray-700">
+                    {currentAnalysis.ingredients?.map((item, idx) => (
+                      <tr key={idx}>
+                        <td className="py-2 font-medium">{item.name}</td>
+                        <td className="py-2">{item.weight_g}</td>
+                        <td className="py-2">{item.protein_g}</td>
+                        <td className="py-2">{item.carbs_g}</td>
+                        <td className="py-2">{item.fat_g}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-3 p-2 bg-gray-50 rounded-lg text-xs font-semibold text-gray-700">
+                Total Calories: <span className="text-emerald-600">{currentAnalysis.calories} kcal</span> | Protein: {currentAnalysis.protein_g}g | Carbs: {currentAnalysis.carbs_g}g | Fat: {currentAnalysis.fat_g}g
+              </div>
+            </div>
+
+            {/* Health Benefits */}
+            {currentAnalysis.health_benefits?.length > 0 && (
+              <div>
+                <h4 className="font-bold text-gray-800 text-base flex items-center gap-2 mb-2">
+                  🌱 Health Benefits
+                </h4>
+                <ul className="list-disc list-inside text-xs text-gray-600 space-y-1">
+                  {currentAnalysis.health_benefits.map((b, i) => (
+                    <li key={i}>{b}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Cautions */}
+            {currentAnalysis.cautions?.length > 0 && (
+              <div>
+                <h4 className="font-bold text-gray-800 text-base flex items-center gap-2 mb-2">
+                  ⚠️ Who Should NOT Consume (Caution)
+                </h4>
+                <ul className="list-disc list-inside text-xs text-gray-600 space-y-1">
+                  {currentAnalysis.cautions.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Swaps */}
+            {currentAnalysis.healthier_swaps?.length > 0 && (
+              <div>
+                <h4 className="font-bold text-gray-800 text-base flex items-center gap-2 mb-2">
+                  💡 Healthier Swaps
+                </h4>
+                <ul className="list-disc list-inside text-xs text-gray-600 space-y-1">
+                  {currentAnalysis.healthier_swaps.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Logged Meals History */}
         <div className="space-y-3">
           <h2 className="font-bold text-gray-800 text-lg">Logged Meals</h2>
-
-          {meals.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
-              No meals scanned yet today.
-            </div>
-          ) : (
-            meals.map((meal) => (
-              <div
-                key={meal.id}
-                className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4 items-start"
-              >
-                {/* Thumbnail Preview */}
-                {meal.image && (
-                  <img
-                    src={meal.image}
-                    alt={meal.name}
-                    className="w-20 h-20 object-cover rounded-lg flex-shrink-0 border border-gray-100"
-                  />
-                )}
-
-                {/* Content & Macros */}
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-semibold text-gray-800">{meal.name}</h3>
-                    <button
-                      onClick={() => handleDelete(meal.id)}
-                      className="text-red-400 hover:text-red-600 p-1"
-                      title="Delete Meal"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mb-2">
-                    {meal.timestamp} •{' '}
-                    <span className="font-bold text-emerald-600">{meal.calories} kcal</span>
-                  </p>
-
-                  {/* Macro Breakdown Table Grid */}
-                  <div className="grid grid-cols-3 gap-1 text-center text-xs bg-gray-50 p-2 rounded-lg">
-                    <div>
-                      <span className="block text-gray-400">Protein</span>
-                      <span className="font-semibold text-gray-700">{meal.protein}g</span>
-                    </div>
-                    <div>
-                      <span className="block text-gray-400">Carbs</span>
-                      <span className="font-semibold text-gray-700">{meal.carbs}g</span>
-                    </div>
-                    <div>
-                      <span className="block text-gray-400">Fat</span>
-                      <span className="font-semibold text-gray-700">{meal.fat}g</span>
-                    </div>
-                  </div>
+          {meals.map((meal) => (
+            <div key={meal.id} className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4 items-start">
+              {meal.image && (
+                <img src={meal.image} alt={meal.name} className="w-16 h-16 object-cover rounded-lg border flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-semibold text-gray-800 text-sm">{meal.name}</h3>
+                  <button onClick={() => db.meals.delete(meal.id)} className="text-red-400 hover:text-red-600 text-xs">🗑️</button>
+                </div>
+                <p className="text-xs text-gray-500 mb-1">
+                  {meal.timestamp} • <span className="font-bold text-emerald-600">{meal.calories} kcal</span>
+                </p>
+                <div className="grid grid-cols-3 gap-1 text-center text-[10px] bg-gray-50 p-1.5 rounded-lg">
+                  <div><span className="text-gray-400 block">P</span><span className="font-bold">{meal.protein}g</span></div>
+                  <div><span className="text-gray-400 block">C</span><span className="font-bold">{meal.carbs}g</span></div>
+                  <div><span className="text-gray-400 block">F</span><span className="font-bold">{meal.fat}g</span></div>
                 </div>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
       </main>
     </div>

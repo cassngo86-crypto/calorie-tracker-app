@@ -13,42 +13,23 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
-
-  // 1. Inspect incoming payload in Vercel Logs
-  console.log('Incoming headers:', req.headers);
-  console.log('Body type:', typeof req.body);
-
-  let body = req.body;
-
-  // Handle payload stringification safely
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch (parseErr) {
-      console.error('Failed to parse JSON body string:', parseErr.message);
-      return res.status(400).json({ error: 'Invalid JSON string in request body' });
-    }
-  }
-
-    // Accept either 'image' or 'imageBase64' payload key
-  const image = body?.image || body?.imageBase64;
-
-  if (!image) {
-    console.error('Validation failed: No image field in request body.', body ? Object.keys(body) : 'Body is null');
-    return res.status(400).json({ error: 'Missing "image" or "imageBase64" property in request payload.' });
-}
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is missing on Vercel.' });
+      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable missing.' });
+    }
+
+    let body = req.body;
+    if (typeof body === 'string') body = JSON.parse(body);
+
+    const image = body?.image || body?.imageBase64;
+    const mealLabel = body?.mealLabel || 'Meal';
+
+    if (!image) {
+      return res.status(400).json({ error: 'Missing image in payload.' });
     }
 
     const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
@@ -62,13 +43,26 @@ export default async function handler(req, res) {
       contents: [
         { inlineData: { mimeType, data: base64Data } },
         {
-          text: `Analyze this food image. Return STRICTLY raw JSON with:
+          text: `Analyze this food image. Context label provided by user: "${mealLabel}".
+          Return STRICTLY raw valid JSON with no code block markdown fences using this exact layout:
           {
             "food_name": "String",
-            "calories": 400,
-            "protein_g": 25,
-            "carbs_g": 40,
-            "fat_g": 15
+            "calories": 450,
+            "protein_g": 20,
+            "carbs_g": 60,
+            "fat_g": 15,
+            "ingredients": [
+              { "name": "Steamed Bun (Baozi)", "weight_g": 110, "protein_g": 9, "carbs_g": 36, "fat_g": 7 }
+            ],
+            "health_benefits": [
+              "High quality protein from the hard-boiled egg aids muscle maintenance and satiety."
+            ],
+            "cautions": [
+              "Steamed buns made with refined white flour can cause a rapid spike in blood sugar."
+            ],
+            "healthier_swaps": [
+              "Replace white flour bun with whole wheat or sweet potato for complex fiber."
+            ]
           }`,
         },
       ],
@@ -78,15 +72,9 @@ export default async function handler(req, res) {
     const cleanJson = rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(cleanJson);
 
-    return res.status(200).json({
-      food_name: parsedData.food_name || 'Scanned Meal',
-      calories: Number(parsedData.calories) || 0,
-      protein_g: Number(parsedData.protein_g) || 0,
-      carbs_g: Number(parsedData.carbs_g) || 0,
-      fat_g: Number(parsedData.fat_g) || 0,
-    });
+    return res.status(200).json(parsedData);
   } catch (error) {
-    console.error('Gemini execution error:', error);
+    console.error('API Handler Error:', error);
     return res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 }
