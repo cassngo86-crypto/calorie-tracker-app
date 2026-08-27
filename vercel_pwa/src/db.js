@@ -1,15 +1,10 @@
 import Dexie from 'dexie';
 
-export const db = new Dexie('NutriTrackDB');
+// Match exact DB name visible in DevTools
+export const db = new Dexie('CalorieTrackerDB');
 
-// Define table schema
-db.version(1).stores({
+db.version(10).stores({
   meals: '++id, name, calories, timestamp',
 });
 
-// Auto-recovery if database is locked or corrupted
-db.open().catch(async (err) => {
-  console.warn('Database initialization issue detected. Resetting...', err);
-  await db.delete();
-  await db.open();
-});
+db.open().catch((err) => console.error('Dexie open error:', err));
