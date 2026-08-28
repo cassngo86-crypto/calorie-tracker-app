@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!icon-192.png|icon-512.png|manifest.json|assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
