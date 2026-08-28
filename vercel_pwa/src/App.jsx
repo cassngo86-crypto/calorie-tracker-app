@@ -46,8 +46,20 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Analysis failed');
+      // Read the response text once
+      const text = await response.text();
+      let data;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        const errorMessage = data?.error || text || `Server error (${response.status})`;
+        throw new Error(errorMessage);
+      }
 
       setCurrentAnalysis(data);
 
